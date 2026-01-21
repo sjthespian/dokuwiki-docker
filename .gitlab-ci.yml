@@ -4,7 +4,7 @@ include:
       # supports kaniko, Buildah or Docker as build tools.
       build-tool: buildah
 
-      snapshot-image: "registry.gitlaob.com/sjthespian/$CI_PROJECT_NAME/snapshot:$CI_COMMIT_REF_SLUG"
+      snapshot-image: "registry.gitlab.com/sjthespian/$CI_PROJECT_NAME/snapshot:$CI_COMMIT_REF_SLUG"
       release-image: "registry.gitlab.com/sjthespian/$CI_PROJECT_NAME:$CI_COMMIT_REF_NAME"
 
 variables:
