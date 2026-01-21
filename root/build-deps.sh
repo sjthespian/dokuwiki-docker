@@ -10,7 +10,7 @@ set -e
 # install additional packages
 apt-get update
 apt-get install -y --no-install-recommends \
-        imagemagick ligmagickwand-dev \
+        imagemagick \
         libzip-dev libgs-dev \
         ghostscript \
         libapache2-mod-xsendfile
