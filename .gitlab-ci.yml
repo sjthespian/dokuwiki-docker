@@ -3,7 +3,7 @@ include:
     inputs:
       # supports kaniko, Buildah or Docker as build tools.
       build-tool: buildah
-      build-args: "--build-arg PHP_EXTENSIONS=${PHP_EXTENSIONS}"
+      build-args: "--build-arg PHP_EXTENSIONS=\"${PHP_EXTENSIONS}\""
 
       snapshot-image: "registry.gitlab.com/sjthespian/$CI_PROJECT_NAME/snapshot:$CI_COMMIT_REF_SLUG"
       release-image: "registry.gitlab.com/sjthespian/$CI_PROJECT_NAME:$CI_COMMIT_REF_NAME"
