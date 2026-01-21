@@ -1,0 +1,11 @@
+include:
+  - component: $CI_SERVER_FQDN/to-be-continuous/docker/gitlab-ci-docker@8.0.10
+    inputs:
+      # supports kaniko, Buildah or Docker as build tools.
+      build-tool: buildah
+
+      snapshot-image: "registry.gitlaob.com/sjthespian/$CI_PROJECT_NAME/snapshot:$CI_COMMIT_REF_SLUG"
+      release-image: "registry.gitlab.com/sjthespian/$CI_PROJECT_NAME:$CI_COMMIT_REF_NAME"
+
+variables:
+  PHP_EXTENSIONS: "imagick zip"

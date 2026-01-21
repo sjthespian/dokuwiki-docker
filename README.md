@@ -1,5 +1,7 @@
 # DokuWiki Docker Image
 
+**NOTE: this has been customized by sjthespin for personal use. This includes imagemagick and ghostscript to support the mediathumbnails plugin.**
+
 This image is based on the official [PHP Apache image](https://hub.docker.com/_/php) and provides a DokuWiki
 installation. It is meant to be used with a reverse proxy that handles SSL termination and authentication. It's probably
 not worth it to use this image for a standalone installation 
