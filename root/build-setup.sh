@@ -16,9 +16,13 @@ a2disconf security
 a2enmod rewrite
 a2enmod xsendfile
 
-# Download DokuWiki from the official website or from GitHub
-curl --fail -L "https://download.dokuwiki.org/src/dokuwiki/dokuwiki-${DOKUWIKI_VERSION}.tgz" -o dokuwiki.tgz || \
-curl --fail -L "https://github.com/dokuwiki/dokuwiki/archive/refs/heads/master.tar.gz" -o dokuwiki.tgz
+# Download DokuWiki — pinned releases come from the download server, master comes from GitHub.
+# No cross-fallback: a failure for a pinned version must not silently ship master as that version.
+if [ "$DOKUWIKI_VERSION" = "master" ]; then
+    curl --fail --retry 5 --retry-all-errors -L "https://github.com/dokuwiki/dokuwiki/archive/refs/heads/master.tar.gz" -o dokuwiki.tgz
+else
+    curl --fail --retry 5 --retry-all-errors -L "https://download.dokuwiki.org/src/dokuwiki/dokuwiki-${DOKUWIKI_VERSION}.tgz" -o dokuwiki.tgz
+fi
 
 # Extract DokuWiki to the web root
 tar xzf dokuwiki.tgz --strip-components 1 -C /var/www/html && rm dokuwiki.tgz
