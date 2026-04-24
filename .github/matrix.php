@@ -62,6 +62,9 @@ function getImageId($tag)
             'method' => "GET",
             'header' => join("\r\n", [
                 "Authorization: Bearer $token",
+                "Accept: application/vnd.oci.image.index.v1+json",
+                "Accept: application/vnd.oci.image.manifest.v1+json",
+                "Accept: application/vnd.docker.distribution.manifest.list.v2+json",
                 "Accept: application/vnd.docker.distribution.manifest.v2+json",
             ])
         ]
@@ -70,6 +73,12 @@ function getImageId($tag)
 
     $data = file_get_contents('https://index.docker.io/v2/' . $repo . '/manifests/' . $tag, false, $context);
     $json = json_decode($data, true);
+    // manifest list / OCI index: digest is per-platform in manifests[]; single manifest: config.digest
+    if (isset($json['manifests'])) {
+        $digests = array_map(fn($m) => $m['digest'], $json['manifests']);
+        sort($digests);
+        return implode(',', $digests);
+    }
     return $json['config']['digest'];
 }
 
