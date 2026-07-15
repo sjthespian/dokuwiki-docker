@@ -8,6 +8,8 @@ jobs:
   buildmatrix:
     name: Create Build Matrix
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -27,6 +29,8 @@ jobs:
                 ${{ runner.os }}-matrix-
       - name: Set up matrix
         id: set-matrix
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           php .github/matrix.php >> $GITHUB_OUTPUT
 

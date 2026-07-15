@@ -48,6 +48,9 @@ function getVersions()
 /**
  * Get the last commit of a branch
  *
+ * Uses the GITHUB_TOKEN environment variable when set to authenticate the
+ * request, which raises the API rate limit and avoids 403 errors.
+ *
  * @param string $repo
  * @param string $branch
  * @return string
@@ -55,13 +58,19 @@ function getVersions()
  */
 function getLastCommit($repo, $branch)
 {
+    $headers = [
+        "Accept: application/vnd.github.v3+json",
+        "User-Agent: PHP",
+    ];
+    $token = getenv('GITHUB_TOKEN');
+    if ($token) {
+        $headers[] = "Authorization: Bearer $token";
+    }
+
     $opts = [
         'http' => [
             'method' => "GET",
-            'header' => join("\r\n", [
-                "Accept: application/vnd.github.v3+json",
-                "User-Agent: PHP"
-            ])
+            'header' => join("\r\n", $headers)
         ]
     ];
     $context = stream_context_create($opts);
