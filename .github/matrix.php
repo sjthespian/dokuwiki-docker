@@ -9,38 +9,77 @@
 
 
 /**
+ * Fetch a URL and return the decoded JSON response
+ *
+ * Aborts the script with an exception when the request fails or the response
+ * is not valid JSON, so that transient network or API errors surface as a
+ * failed job instead of an empty build matrix.
+ *
+ * @param string $url the URL to request
+ * @param resource|null $context an optional stream context for the request
+ * @return array the decoded JSON response
+ * @throws RuntimeException when the request fails or returns invalid JSON
+ */
+function fetchJson($url, $context = null)
+{
+    $data = @file_get_contents($url, false, $context);
+    if ($data === false) {
+        $error = error_get_last();
+        throw new RuntimeException("Failed to fetch $url: " . ($error['message'] ?? 'unknown error'));
+    }
+    try {
+        return json_decode($data, true, 512, JSON_THROW_ON_ERROR);
+    } catch (JsonException $e) {
+        throw new RuntimeException("Invalid JSON from $url: " . $e->getMessage());
+    }
+}
+
+/**
  * Get the list of DokuWiki versions from the download server
  *
  * @return array
+ * @throws RuntimeException when the versions cannot be fetched
  */
 function getVersions()
 {
-    $data = file_get_contents('https://download.dokuwiki.org/version');
-    return json_decode($data, true);
+    return fetchJson('https://download.dokuwiki.org/version');
 }
 
 /**
  * Get the last commit of a branch
  *
+ * Uses the GITHUB_TOKEN environment variable when set to authenticate the
+ * request, which raises the API rate limit and avoids 403 errors.
+ *
  * @param string $repo
  * @param string $branch
  * @return string
+ * @throws RuntimeException when the commit cannot be determined
  */
 function getLastCommit($repo, $branch)
 {
+    $headers = [
+        "Accept: application/vnd.github.v3+json",
+        "User-Agent: PHP",
+    ];
+    $token = getenv('GITHUB_TOKEN');
+    if ($token) {
+        $headers[] = "Authorization: Bearer $token";
+    }
+
     $opts = [
         'http' => [
             'method' => "GET",
-            'header' => join("\r\n", [
-                "Accept: application/vnd.github.v3+json",
-                "User-Agent: PHP"
-            ])
+            'header' => join("\r\n", $headers)
         ]
     ];
     $context = stream_context_create($opts);
 
-    $data = file_get_contents("https://api.github.com/repos/dokuwiki/$repo/commits/$branch", false, $context);
-    $json = json_decode($data, true);
+    $url = "https://api.github.com/repos/dokuwiki/$repo/commits/$branch";
+    $json = fetchJson($url, $context);
+    if (!isset($json['sha'])) {
+        throw new RuntimeException("No commit sha in response from $url");
+    }
     return $json['sha'];
 }
 
@@ -49,13 +88,15 @@ function getLastCommit($repo, $branch)
  *
  * @param string $tag
  * @return string
+ * @throws RuntimeException when the image id cannot be determined
  */
 function getImageId($tag)
 {
     $repo = 'library/php';
-    $data = file_get_contents('https://auth.docker.io/token?service=registry.docker.io&scope=repository:' . $repo . ':pull');
-    $token = json_decode($data, true)['token'];
-
+    $token = fetchJson('https://auth.docker.io/token?service=registry.docker.io&scope=repository:' . $repo . ':pull')['token'] ?? null;
+    if ($token === null) {
+        throw new RuntimeException('Failed to obtain a Docker registry token');
+    }
 
     $opts = [
         'http' => [
@@ -71,13 +112,16 @@ function getImageId($tag)
     ];
     $context = stream_context_create($opts);
 
-    $data = file_get_contents('https://index.docker.io/v2/' . $repo . '/manifests/' . $tag, false, $context);
-    $json = json_decode($data, true);
+    $url = 'https://index.docker.io/v2/' . $repo . '/manifests/' . $tag;
+    $json = fetchJson($url, $context);
     // manifest list / OCI index: digest is per-platform in manifests[]; single manifest: config.digest
     if (isset($json['manifests'])) {
         $digests = array_map(fn($m) => $m['digest'], $json['manifests']);
         sort($digests);
         return implode(',', $digests);
+    }
+    if (!isset($json['config']['digest'])) {
+        throw new RuntimeException("No image digest in manifest from $url");
     }
     return $json['config']['digest'];
 }
@@ -86,47 +130,67 @@ function getImageId($tag)
  * Get the image tag used in the current Dockerfile
  *
  * @return string
+ * @throws RuntimeException when no PHP image tag can be found
  */
 function getImageTag()
 {
-    $df = file_get_contents('Dockerfile');
-    preg_match('/FROM php:(?<tag>\S*)/', $df, $matches);
+    $df = @file_get_contents('Dockerfile');
+    if ($df === false) {
+        throw new RuntimeException('Failed to read Dockerfile');
+    }
+    if (!preg_match('/FROM php:(?<tag>\S*)/', $df, $matches)) {
+        throw new RuntimeException('Could not find a PHP image tag in the Dockerfile');
+    }
     return $matches['tag'];
 }
 
 
-$result = [];
-$self = getLastCommit('docker', 'main');
-$upstreamTag = getImageTag();
-$image = getImageId($upstreamTag);
+try {
+    $result = [];
+    $pending = [];
+    $self = getLastCommit('docker', 'main');
+    $upstreamTag = getImageTag();
+    $image = getImageId($upstreamTag);
 
-foreach (getVersions() as $release => $info) {
-    $branch = $release === 'oldstable' ? 'old-stable' : $release;
-    $commit = getLastCommit('dokuwiki', $branch);
-    $ident = join('-', [$release, $commit, $image, $self]);
-    $cache = '.github/matrix.cache/' . $release;
+    foreach (getVersions() as $release => $info) {
+        $branch = $release === 'oldstable' ? 'old-stable' : $release;
+        $commit = getLastCommit('dokuwiki', $branch);
+        $ident = join('-', [$release, $commit, $image, $self]);
+        $cache = '.github/matrix.cache/' . $release;
 
-    $last = @file_get_contents($cache);
-    fwrite(STDERR, "Old: $last\n");
-    fwrite(STDERR, "New: $ident\n");
-    if ($last === $ident) {
-        // this combination has been built before
-        fwrite(STDERR, "No change. Skipping $release\n");
-        continue;
+        $last = @file_get_contents($cache);
+        fwrite(STDERR, "Old: $last\n");
+        fwrite(STDERR, "New: $ident\n");
+        if ($last === $ident) {
+            // this combination has been built before
+            fwrite(STDERR, "No change. Skipping $release\n");
+            continue;
+        }
+
+        // this branch needs to be built
+        $result[] = [
+            'version' => $info['version'],
+            'date' => $info['date'],
+            'name' => $info['name'],
+            'type' => $release,
+        ];
+        // remember the cache update, only written once the whole matrix computed cleanly
+        $pending[$cache] = $ident;
     }
 
-    // this branch needs to be built
-    $result[] = [
-        'version' => $info['version'],
-        'date' => $info['date'],
-        'name' => $info['name'],
-        'type' => $release,
-    ];
-    // update the cache
-    if (!is_dir('.github/matrix.cache')) {
+    // the matrix is complete, persist the cache so a partial failure never marks
+    // a release as built
+    if ($pending && !is_dir('.github/matrix.cache')) {
         mkdir('.github/matrix.cache');
     }
-    file_put_contents($cache, $ident);
+    foreach ($pending as $cache => $ident) {
+        file_put_contents($cache, $ident);
+    }
+} catch (Throwable $e) {
+    // abort with a non-zero exit code so the build job is not silently skipped
+    fwrite(STDERR, "ERROR: " . $e->getMessage() . "\n");
+    fwrite(STDERR, $e->getTraceAsString() . "\n");
+    exit(1);
 }
 
 // output the result
